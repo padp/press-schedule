@@ -4,12 +4,14 @@ import { useDrag, useDrop, DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import { API_BASE, REQUEST_TIMEOUT } from './Constants';
 
-// Renders one (press, day_of_week, shift) schedule as an editable grid
+// Renders one (day_of_week, shift) Press 2 schedule as an editable grid
 // shaped like the real sheet it replaces (see CLAUDE.md for the source
-// inspection this is built from) - NOT a generic spreadsheet:
+// inspection this is built from, and its "The Press Reports folder"
+// section specifically - Press 2 is the only press this needs to cover,
+// confirmed with the user 2026-09-24) - NOT a generic spreadsheet:
 //
 //   - a title/date header
-//   - a roster side-panel (Press Op, Saw Op #1/#2, Reviewed By, Oven Probes)
+//   - a roster side-panel (Press Op, Saw Op #1/#2, Oven Probes, Supervisor)
 //   - an ORDERED list of rows, each either a job (one cell per column) or a
 //     free-text note - row position is the run sequence, not sortable data
 //
@@ -17,19 +19,27 @@ import { API_BASE, REQUEST_TIMEOUT } from './Constants';
 // production entries include "BAL." and "trial-274" in columns that look
 // numeric. Rejecting those would be a regression against the sheet this
 // replaces, not an improvement.
+//
+// DEFAULT_COLUMNS is Press 2's real, confirmed column set (a wide scan of
+// D-3 Press Report - Thursday 2nd Shift.xls, not guessed) - includes
+// Die Failure/Die Pull/Comments, which the earlier (now out-of-scope)
+// Press 1/4 files didn't have. Deliberately excludes the formula-driven
+// efficiency block (Minutes Per Die, Gross Pounds/Hour, etc.) - decided
+// out of scope, see README.
 
 const DEFAULT_COLUMNS = [
   'die_no', 'suffix', 'job_no', 'part_no', 'alloy_temper', 'blts',
   'cut_length', 'est_wt_ft', 'cast_no', 'blt_length', 'blts_ran',
-  'die_temp', 'start_time', 'stop_time',
+  'die_temp', 'start_time', 'stop_time', 'die_failure', 'die_pull', 'comments',
 ];
 
 const COLUMN_LABELS = {
   die_no: 'Die #', suffix: 'Suffix', job_no: 'Job #', part_no: 'Part #',
   alloy_temper: 'Alloy/temper', blts: '# blts', cut_length: 'Cut length',
   est_wt_ft: 'Est wt/ft', cast_no: 'Cast #', blt_length: 'blt length',
-  blts_ran: 'blts ran', die_temp: 'Die temp', start_time: 'Start time',
-  stop_time: 'Stop time', str_blt_length: 'Str blt length',
+  blts_ran: 'blts ran', die_temp: 'Die Temp', start_time: 'Start time',
+  stop_time: 'Stop time', die_failure: 'Die Failure', die_pull: 'Die Pull',
+  comments: 'Comments', str_blt_length: 'Str blt length',
 };
 
 function columnLabel(key) {
@@ -45,7 +55,12 @@ function emptyJobRow(columns) {
 function blankDoc() {
   return {
     date: '',
-    roster: { press_op: '', saw_op_1: '', saw_op_2: '', reviewed_by: '', oven_probes: '' },
+    // Press 2's real labels (rows 61-65 of the real file): PRESS OP:,
+    // SAW OP #1:, SAW OP #2:, OVEN PROBES:, SUPERVISOR: - not the other
+    // (out-of-scope) file's "REVIEWED BY:". The API/grid don't actually
+    // require these exact keys - see README's "roster keys are not fixed"
+    // - this is just the sensible starting point for a brand-new slot.
+    roster: { press_op: '', saw_op_1: '', saw_op_2: '', oven_probes: '', supervisor: '' },
     columns: DEFAULT_COLUMNS,
     rows: [],
   };

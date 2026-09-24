@@ -15,6 +15,12 @@ function parseHash() {
 }
 
 function IndexView({ onOpen }) {
+  // Only Press 2 is in scope (confirmed with the user 2026-09-24), so the
+  // press picker is skipped entirely rather than showing a single-option
+  // dropdown for its own sake. PRESSES stays a list in Constants.js, not a
+  // bare string, and the picker below is still fully wired to setPress - so
+  // this genuinely expands back into a working picker the day a second
+  // press is added, not just a comment promising it will.
   const [press, setPress] = useState(PRESSES[0]);
   const [day, setDay] = useState(DAYS[0]);
   const [shift, setShift] = useState(SHIFTS[0]);
@@ -22,16 +28,18 @@ function IndexView({ onOpen }) {
   return (
     <div style={{ padding: '1.5rem', maxWidth: 480, margin: '0 auto',
                   fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif' }}>
-      <h1 style={{ fontSize: '1.4rem' }}>Press Schedule</h1>
+      <h1 style={{ fontSize: '1.4rem' }}>{press} Schedule</h1>
       <p style={{ color: '#6b7a8c', fontSize: '.9rem' }}>
-        Pick a press, day, and shift to open its schedule.
+        Pick a day and shift to open its schedule.
       </p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '.75rem', marginTop: '1rem' }}>
-        <label>Press
-          <select value={press} onChange={(e) => setPress(e.target.value)} style={{ width: '100%', marginTop: '.2rem' }}>
-            {PRESSES.map((p) => <option key={p} value={p}>{p}</option>)}
-          </select>
-        </label>
+        {PRESSES.length > 1 && (
+          <label>Press
+            <select value={press} onChange={(e) => setPress(e.target.value)} style={{ width: '100%', marginTop: '.2rem' }}>
+              {PRESSES.map((p) => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </label>
+        )}
         <label>Day
           <select value={day} onChange={(e) => setDay(e.target.value)} style={{ width: '100%', marginTop: '.2rem' }}>
             {DAYS.map((d) => <option key={d} value={d}>{d}</option>)}
