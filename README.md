@@ -38,11 +38,18 @@ and Press 4, inspected 2026-09-23):
                                         (generated snapshot - read by people, never read back)
 
 - **MongoDB Atlas** holds the actual schedule. Both roles write here,
-  through the same web app - not through a shared file.
-- **Flask API on Render**, matching `picos` / `granco_monitor` /
-  `oven_monitor`'s existing pattern (same `SQL_PASS` env convention,
-  `pymongo`).
-- **React frontend on GitHub Pages**, same split as those sibling projects.
+  through the same web app - not through a shared file. Own database
+  (`press_schedule`) on the same cluster picos/Granco/the ovens already
+  use, isolated at the database level so a bug here can't touch their data.
+- **Flask API on Vercel** (a Vercel Function), not Render - a deliberate
+  change from the sibling projects' pattern, since this app has no PLC/local
+  collector dependency the way they do; a stateless serverless function
+  suits pure CRUD well. Deployed at `https://press-schedule-api.vercel.app`.
+  Same `SQL_PASS` env convention and `pymongo` either way. See CLAUDE.md's
+  "Deploying the API" for the real mechanics (Vercel auto-detects Flask only
+  at specific root-level filenames, so the project is scoped to `api/` via
+  `--cwd` rather than restructuring the repo to match).
+- **React frontend on GitHub Pages**, same split as the sibling projects.
   The grid is a bespoke component built for this sheet's actual shape (see
   "Why not a spreadsheet library" below), not an embedded generic
   spreadsheet.

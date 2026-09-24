@@ -3,6 +3,98 @@
 Read `README.md` for what the system is and why it's built this way. This
 file is for things a session picks up the hard way.
 
+## Deploying the API (Vercel)
+
+The Flask API deploys as a Vercel Function - a real architecture change
+from the original Render plan (README's "Architecture" section is updated;
+this records the mechanics). Confirmed directly against Vercel's own docs
+(https://vercel.com/docs/frameworks/backend/flask, fetched 2026-09-24) and
+by actually deploying, not assumed:
+
+- **Vercel auto-detects a Flask `app` only at specific root-level
+  filenames** (`app.py`/`index.py`/`server.py`/`main.py`/`wsgi.py`/
+  `asgi.py`, or the same inside `src/`/`app/`) - never arbitrarily nested.
+  `api/app.py` doesn't match that on its own.
+- **The fix used here: scope the whole Vercel project to the `api/`
+  subdirectory**, via `--cwd api` on every `vercel` command - not a root
+  shim file. This makes `api/app.py` a directly-detected entrypoint with
+  zero rename, and - just as important - it means the sibling
+  `package.json`/React `src/` (this project's frontend) are OUTSIDE
+  Vercel's view entirely, so there's no risk of framework auto-detection
+  getting confused by a Node project sitting next to a Python one in the
+  same repo. Every command below needs `--cwd api` (or run from inside
+  `api/` directly) for this reason.
+- **`requirements.txt` lives in `api/`, not the project root** - Vercel's
+  Python runtime looks for it relative to whatever it's treating as project
+  root, which is `api/` once scoped this way.
+- `gunicorn` was dropped from `requirements.txt` - it was only ever needed
+  for the abandoned Render/traditional-WSGI-server plan. Vercel's Python
+  runtime wraps the Flask `app` directly.
+
+Commands:
+
+    vercel link --cwd api -y -p press-schedule-api    # one-time
+    vercel deploy --cwd api --prod -y                 # deploy current files
+    vercel git connect --cwd api                       # auto-deploy on push
+
+Deployed: `https://press-schedule-api.vercel.app` (project
+`yellow-james-projects/press-schedule-api`).
+
+**`vercel git connect` fails as of 2026-09-24** - "Failed to connect
+padp/press-schedule to project... Make sure you have access to the
+repository." This is not a CLI/config problem - the Vercel GitHub App isn't
+authorized for the `padp` GitHub org yet, which needs an org admin to grant
+it through GitHub's own OAuth/App-installation flow in a browser (Vercel
+dashboard -> Project -> Settings -> Git -> Connect, or
+https://github.com/apps/vercel/installations/new). Until that's done,
+deploys are manual (`vercel deploy --cwd api --prod -y` after every real
+change) rather than automatic on push - a real gap, not a preference.
+
+**`SQL_PASS` is not set on Vercel** - this machine has never held that
+credential (same gap as the original Render plan). Every Mongo-touching
+endpoint 500s until it's added - confirmed directly (`GET /` returns 200
+with no Mongo involved; `GET /api/schedules` returns a 500 without it).
+Add it via `vercel env add SQL_PASS production --cwd api` (prompts for the
+value, never put it in a file or a command line argument where it could
+end up in shell history) or the Vercel dashboard -> Project -> Settings ->
+Environment Variables. Needs a `vercel deploy --cwd api --prod -y` after
+adding it - env var changes don't retroactively apply to an already-built
+deployment.
+
+Minimum Vercel CLI version for this Flask flow is 48.2.10 - confirmed the
+hard way: `vercel link` failed outright on 37.14.0 with "Your Vercel CLI
+version is outdated." `npm i -g vercel@latest` fixed it (60.0.0 at the
+time).
+
+## Verifying the .xlsx export without touching real files
+
+`tools/export_xlsx.py` (`write_schedule_xlsx(doc, path)`) writes one
+schedule document out as a real `.xlsx` - the one-way snapshot described in
+README's Architecture. `tools/test_output/` is where it's exercised during
+development - gitignored, and the test suite's `clean_output` fixture wipes
+it after every run. **Never point this function at `Press Schedules\` or
+`Press Reports\` until the scheduled job that owns that responsibility is
+actually built and reviewed** - same rule as reading the legacy files,
+now applying to writing too.
+
+    python -m pytest tools\\test_export_xlsx.py -v
+
+Deliberately NOT a byte-for-byte reproduction of the real sheet's layout
+(that one pads ~55 blank rows between the header and the roster panel,
+matched to a printed paper form - see "Row semantics" below). The export
+lays out the same information compactly instead: title + date, roster,
+then the job/note grid - nobody reading a generated snapshot benefits from
+reproducing dead paper-form spacing.
+
+Column typing survives the export, not just the grid - a `column_types`
+"number" column is written as a real Excel number (openpyxl infers the
+type from the Python value passed in), and `start_time`/`stop_time` become
+real Excel time values, not text. Confirmed directly, not assumed: dumped
+a generated file's full cell contents and checked `isinstance(value,
+(int, float))` / `datetime.time` for both, plus confirmed a "BAL." in a
+non-numeric column is NOT coerced just because a numeric column sits next
+to it in the same row.
+
 ## Where things are
 
 | | |

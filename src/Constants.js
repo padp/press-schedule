@@ -1,4 +1,9 @@
-export const API_BASE = process.env.REACT_APP_SCHEDULE_API_BASE || "http://127.0.0.1:5059";
+// Production default, same convention as picos's Constants.js
+// (PRESS_API_BASE) - the deployed URL is the default, and REACT_APP_* only
+// overrides it for local dev against the mongomock-backed local server.
+// Getting this backwards (local URL as the default) would silently break
+// the deployed frontend for anyone who isn't running that local server.
+export const API_BASE = process.env.REACT_APP_SCHEDULE_API_BASE || "https://press-schedule-api.vercel.app";
 export const REQUEST_TIMEOUT = 15000;
 
 // Confirmed with the user 2026-09-24: Press 2 is the only press this needs

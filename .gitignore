@@ -4,3 +4,8 @@ build/
 __pycache__/
 *.pyc
 .env
+
+# Generated .xlsx test output - see CLAUDE.md's "Do not overwrite real
+# files while building/testing this". Never the destination for anything
+# that touches the real network share.
+tools/test_output/
