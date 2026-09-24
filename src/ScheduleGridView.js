@@ -15,31 +15,44 @@ import { API_BASE, REQUEST_TIMEOUT } from './Constants';
 //   - an ORDERED list of rows, each either a job (one cell per column) or a
 //     free-text note - row position is the run sequence, not sortable data
 //
-// Every field is a plain text input, never a typed number input - real
-// production entries include "BAL." and "trial-274" in columns that look
-// numeric. Rejecting those would be a regression against the sheet this
-// replaces, not an improvement.
+// Every field is a plain text input BY DEFAULT, not a typed number input -
+// real production entries include "BAL." and "trial-274" in columns that
+// look numeric, inherited from the legacy sheet. Rejecting those would be a
+// regression against the sheet this replaces, not an improvement.
 //
-// DEFAULT_COLUMNS is Press 2's real, confirmed column set (a wide scan of
-// D-3 Press Report - Thursday 2nd Shift.xls, not guessed) - includes
-// Die Failure/Die Pull/Comments, which the earlier (now out-of-scope)
-// Press 1/4 files didn't have. Deliberately excludes the formula-driven
-// efficiency block (Minutes Per Die, Gross Pounds/Hour, etc.) - decided
-// out of scope, see README.
+// column_types is the opt-in exception, not a blanket switch: a column with
+// no entry stays exactly as loose as before. So far it only marks columns
+// that DON'T exist in the real legacy sheet at all - Oven Cavity and Time
+// Down (Minutes) are new fields being introduced for this app, confirmed
+// with the user 2026-09-24, not something inherited with messy real-world
+// history to accommodate - so there's no reason to leave them untyped.
+// api/app.py enforces the same list server-side; see its _validate_schedule_body.
+//
+// DEFAULT_COLUMNS started as Press 2's real, confirmed column set (a wide
+// scan of D-3 Press Report - Thursday 2nd Shift.xls, not guessed), then
+// three new ones were added for this app specifically (not in the source
+// file - Oven Cavity, Downtime Code, Time Down). Deliberately excludes the
+// formula-driven efficiency block (Minutes Per Die, Gross Pounds/Hour,
+// etc.) - decided out of scope, see README.
 
 const DEFAULT_COLUMNS = [
   'die_no', 'suffix', 'job_no', 'part_no', 'alloy_temper', 'blts',
   'cut_length', 'est_wt_ft', 'cast_no', 'blt_length', 'blts_ran',
-  'die_temp', 'start_time', 'stop_time', 'die_failure', 'die_pull', 'comments',
+  'die_temp', 'oven_cavity', 'start_time', 'stop_time', 'die_failure',
+  'die_pull', 'downtime_code', 'time_down', 'comments',
 ];
+
+const DEFAULT_COLUMN_TYPES = { oven_cavity: 'number', time_down: 'number' };
 
 const COLUMN_LABELS = {
   die_no: 'Die #', suffix: 'Suffix', job_no: 'Job #', part_no: 'Part #',
   alloy_temper: 'Alloy/temper', blts: '# blts', cut_length: 'Cut length',
   est_wt_ft: 'Est wt/ft', cast_no: 'Cast #', blt_length: 'blt length',
-  blts_ran: 'blts ran', die_temp: 'Die Temp', start_time: 'Start time',
-  stop_time: 'Stop time', die_failure: 'Die Failure', die_pull: 'Die Pull',
-  comments: 'Comments', str_blt_length: 'Str blt length',
+  blts_ran: 'blts ran', die_temp: 'Die Temp', oven_cavity: 'Oven Cavity',
+  start_time: 'Start time', stop_time: 'Stop time', die_failure: 'Die Failure',
+  die_pull: 'Die Pull', downtime_code: 'Downtime Code',
+  time_down: 'Time Down (min)', comments: 'Comments',
+  str_blt_length: 'Str blt length',
 };
 
 function columnLabel(key) {
@@ -62,6 +75,7 @@ function blankDoc() {
     // - this is just the sensible starting point for a brand-new slot.
     roster: { press_op: '', saw_op_1: '', saw_op_2: '', oven_probes: '', supervisor: '' },
     columns: DEFAULT_COLUMNS,
+    column_types: DEFAULT_COLUMN_TYPES,
     rows: [],
   };
 }
@@ -80,7 +94,7 @@ function RowControls({ index, onInsertJob, onInsertNote, onDelete, onMove, count
   );
 }
 
-function GridRow({ row, index, columns, onChange, onMove, ...controls }) {
+function GridRow({ row, index, columns, columnTypes, onChange, onMove, ...controls }) {
   const ref = useRef(null);
 
   const [, drop] = useDrop({
@@ -113,15 +127,20 @@ function GridRow({ row, index, columns, onChange, onMove, ...controls }) {
           />
         </td>
       ) : (
-        columns.map((c) => (
-          <td key={c}>
-            <input
-              type="text"
-              value={row[c] || ''}
-              onChange={(e) => onChange(index, c, e.target.value)}
-            />
-          </td>
-        ))
+        columns.map((c) => {
+          const isNumber = (columnTypes || {})[c] === 'number';
+          return (
+            <td key={c}>
+              <input
+                type={isNumber ? 'number' : 'text'}
+                step={isNumber ? 'any' : undefined}
+                inputMode={isNumber ? 'decimal' : undefined}
+                value={row[c] || ''}
+                onChange={(e) => onChange(index, c, e.target.value)}
+              />
+            </td>
+          );
+        })
       )}
       <td className="ps-row-controls-cell">
         <RowControls index={index} onMove={onMove} {...controls} />
@@ -160,6 +179,7 @@ function ScheduleGrid({ press, dayOfWeek, shift, onBack }) {
   useEffect(() => { load(); }, [load]);
 
   const columns = (doc && doc.columns) || DEFAULT_COLUMNS;
+  const columnTypes = (doc && doc.column_types) || {};
 
   const setField = (path, value) => {
     setDoc((prev) => {
@@ -276,7 +296,12 @@ function ScheduleGrid({ press, dayOfWeek, shift, onBack }) {
           <thead>
             <tr>
               <th></th>
-              {columns.map((c) => <th key={c}>{columnLabel(c)}</th>)}
+              {columns.map((c) => (
+                <th key={c} title={columnTypes[c] === 'number' ? 'Numbers only' : undefined}>
+                  {columnLabel(c)}
+                  {columnTypes[c] === 'number' && <span className="ps-numeric-badge">#</span>}
+                </th>
+              ))}
               <th></th>
             </tr>
           </thead>
@@ -287,6 +312,7 @@ function ScheduleGrid({ press, dayOfWeek, shift, onBack }) {
                 row={row}
                 index={i}
                 columns={columns}
+                columnTypes={columnTypes}
                 onChange={setRowField}
                 onMove={moveRow}
                 onInsertJob={(idx) => insertRow(idx, emptyJobRow(columns))}
@@ -357,6 +383,10 @@ const CSS = `
 .ps-grid input { width: 100%; box-sizing: border-box; border: none; padding: .3rem .35rem; font-size: .82rem;
   font-family: inherit; background: transparent; }
 .ps-grid input:focus { outline: 2px solid #3d82c4; outline-offset: -2px; background: #fff; }
+.ps-grid input[type="number"] { font-variant-numeric: tabular-nums; }
+.ps-numeric-badge { display: inline-block; margin-left: .3rem; font-size: .62rem;
+  color: #3d82c4; background: #e8f0fa; border-radius: 3px; padding: 0 .3rem;
+  vertical-align: middle; letter-spacing: 0; text-transform: none; }
 .ps-row.ps-dragging { opacity: .4; }
 .ps-note-row { background: #fdf6e3; }
 .ps-note-cell input { font-style: italic; font-weight: 600; }

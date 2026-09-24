@@ -8,6 +8,8 @@ columns, and a free-text note row interleaved between job rows.
     pip install --user pytest mongomock
     python -m pytest api\\test_app.py -v
 """
+from datetime import datetime, timezone
+
 import mongomock
 import pytest
 
@@ -141,6 +143,36 @@ def test_save_appends_to_history_without_losing_current(client):
     assert hist[1]["rows"][0]["text"] == "version one"
 
 
+def test_history_orders_correctly_even_on_an_identical_timestamp(client, monkeypatch):
+    """Regression test for a real failure: two saves landing on the exact
+    same saved_at (forced here, rather than relying on the test happening to
+    run fast enough to hit it by chance - which is how this was first
+    found) must still come back newest-first. saved_at alone can't
+    guarantee that; the fix adds _id as a secondary sort key.
+    """
+    frozen = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+    class FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return frozen
+
+    monkeypatch.setattr(app_module, "datetime", FrozenDatetime)
+
+    first = dict(PRESS1_BODY, rows=[{"kind": "note", "text": "version one"}])
+    second = dict(PRESS1_BODY, rows=[{"kind": "note", "text": "version two"}])
+    client.put("/api/schedule/PRESS 1/Wednesday/1st", json=first)
+    client.put("/api/schedule/PRESS 1/Wednesday/1st", json=second)
+
+    hist = client.get(
+        "/api/schedule/PRESS 1/Wednesday/1st/history"
+    ).get_json()["history"]
+    assert len(hist) == 2
+    assert hist[0]["saved_at"] == hist[1]["saved_at"]  # confirms the tie is real
+    assert hist[0]["rows"][0]["text"] == "version two"
+    assert hist[1]["rows"][0]["text"] == "version one"
+
+
 def test_different_press_day_shift_are_independent(client):
     client.put("/api/schedule/PRESS 1/Wednesday/1st", json=PRESS1_BODY)
     res = client.get("/api/schedule/PRESS 4/Wednesday/1st")
@@ -153,6 +185,45 @@ def test_list_schedules_reflects_saved_slots_only(client):
     schedules = client.get("/api/schedules").get_json()["schedules"]
     assert len(schedules) == 1
     assert schedules[0]["press"] == "PRESS 1"
+
+
+def test_numeric_column_accepts_a_number(client):
+    body = dict(PRESS1_BODY, column_types={"oven_cavity": "number"},
+               rows=[{"kind": "job", "oven_cavity": "3"}])
+    res = client.put("/api/schedule/PRESS 2/Thursday/2nd", json=body)
+    assert res.status_code == 200
+
+
+def test_numeric_column_accepts_blank(client):
+    """A not-yet-filled-in number field is never a validation error."""
+    body = dict(PRESS1_BODY, column_types={"oven_cavity": "number"},
+               rows=[{"kind": "job", "oven_cavity": ""}])
+    res = client.put("/api/schedule/PRESS 2/Thursday/2nd", json=body)
+    assert res.status_code == 200
+
+
+def test_numeric_column_rejects_non_numeric_text(client):
+    body = dict(PRESS1_BODY, column_types={"oven_cavity": "number"},
+               rows=[{"kind": "job", "oven_cavity": "abc"}])
+    res = client.put("/api/schedule/PRESS 2/Thursday/2nd", json=body)
+    assert res.status_code == 400
+    assert "oven_cavity" in res.get_json()["error"]
+
+
+def test_unlisted_columns_stay_loose_even_with_column_types_present(client):
+    """column_types is opt-in per column, not a blanket switch - a column
+    with no entry in it (or type "text") must still accept "BAL."/etc."""
+    body = dict(PRESS1_BODY, column_types={"oven_cavity": "number"},
+               rows=[{"kind": "job", "blts": "BAL.", "oven_cavity": "3"}])
+    res = client.put("/api/schedule/PRESS 2/Thursday/2nd", json=body)
+    assert res.status_code == 200
+    assert res.get_json()["rows"][0]["blts"] == "BAL."
+
+
+def test_column_types_must_use_a_known_type(client):
+    body = dict(PRESS1_BODY, column_types={"oven_cavity": "currency"})
+    res = client.put("/api/schedule/PRESS 2/Thursday/2nd", json=body)
+    assert res.status_code == 400
 
 
 def test_press4_extra_column_is_not_rejected(client):

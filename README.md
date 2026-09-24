@@ -111,29 +111,28 @@ process change:
 
 ```json
 {
-  "_id": "press1_wednesday_1st",
-  "press": "PRESS 1",
-  "day_of_week": "Wednesday",
-  "shift": "1st",
-  "date": "2026-09-23",
+  "_id": "press2_thursday_2nd",
+  "press": "PRESS 2",
+  "day_of_week": "Thursday",
+  "shift": "2nd",
+  "date": "2026-09-24",
   "roster": {
-    "press_op": "", "saw_op_1": "", "saw_op_2": "",
-    "reviewed_by": "", "oven_probes": ""
+    "press_op": "Dylan", "saw_op_1": "Ryan", "saw_op_2": "Will",
+    "oven_probes": "DG - 3:35 PM", "supervisor": "Wally G"
   },
   "columns": ["die_no", "suffix", "job_no", "part_no", "alloy_temper",
-              "blts", "cut_length", "est_wt_ft", "cast_no",
-              "blt_length", "blts_ran", "die_temp", "start_time", "stop_time"],
+              "blts", "cut_length", "est_wt_ft", "cast_no", "blt_length",
+              "blts_ran", "die_temp", "oven_cavity", "start_time",
+              "stop_time", "die_failure", "die_pull", "downtime_code",
+              "time_down", "comments"],
+  "column_types": {"oven_cavity": "number", "time_down": "number"},
   "rows": [
-    {"kind": "job", "die_no": "173", "suffix": "270", "job_no": "125871",
-     "part_no": "173X-1", "alloy_temper": "6063B-T5", "blts": "27",
-     "cut_length": "184.4", "est_wt_ft": "0.518", "cast_no": "27013",
-     "blt_length": "23", "blts_ran": "9", "die_temp": "747",
-     "start_time": "06:44", "stop_time": "07:14"},
+    {"kind": "job", "die_no": "1309", "job_no": "25892", "part_no": "1309X-1",
+     "alloy_temper": "6005AT6", "blts": "43", "cut_length": "232.0",
+     "est_wt_ft": "1.056", "oven_cavity": "3", "...": "..."},
     {"kind": "job", "die_no": "173", "suffix": "269", "...": "...", "blts": "BAL."},
     {"kind": "job", "suffix": "trial-274", "...": "..."},
-    {"kind": "note", "text": "Load in castool"},
-    {"kind": "job", "...": "..."},
-    {"kind": "note", "text": "ALLOY CHANGE"}
+    {"kind": "note", "text": "ALLOY CHANGE to"}
   ],
   "updated_at": "...", "updated_by": "..."
 }
@@ -141,10 +140,23 @@ process change:
 
 Deliberate choices:
 
-- **`columns` is per-document (really: per-press), not hardcoded** - Press 1
-  and Press 4 don't have the same column set, confirmed directly. The grid
-  renders whatever columns a press's schedule declares.
-- **Every job field is a free-text string, not a typed number.** Real,
+- **`columns` is per-document, not hardcoded** - the real Press 2 file has
+  a different column set than the (now out-of-scope) Press 1/4 files had,
+  confirmed directly. The grid renders whatever columns a document declares.
+- **`column_types` is an opt-in exception list, not a blanket switch** -
+  see api/app.py's `_validate_schedule_body`. Every column defaults to free
+  text; a column only gets real "must be a number (or blank)" validation if
+  it's explicitly listed with `"number"`. So far that's exactly two columns
+  - `oven_cavity` and `time_down` - and deliberately not any column
+  inherited from the legacy sheet: those two are brand-new fields being
+  introduced for this app (confirmed with the user 2026-09-24), with no
+  history of real free-text entries like `"BAL."` to accommodate, unlike
+  every other column. Enforced twice: server-side (a save is rejected with
+  a clear `rows[i].<col> must be a number` error) and client-side (the grid
+  renders a real `<input type="number">`, which - confirmed directly -
+  Chromium's own native behavior refuses to let you type a letter into at
+  all, stronger than any JS check could be).
+- **Every other job field is a free-text string, not a typed number.** Real,
   currently-valid entries include `"BAL."` (run whatever billet stock is
   left) in a numeric-looking column and `"trial-274"` in a suffix column.
   Rejecting these on day one would be a regression, not an improvement.

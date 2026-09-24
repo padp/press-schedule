@@ -32,18 +32,62 @@ def _key(press, day_of_week, shift):
     return {"press": press, "day_of_week": day_of_week, "shift": shift}
 
 
+COLUMN_TYPES = ("text", "number")
+
+
+def _is_number_like(value):
+    if value in (None, ""):
+        return True  # not yet filled in - a blank is never a validation error
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return True
+    if isinstance(value, str):
+        try:
+            float(value.strip())
+            return True
+        except ValueError:
+            return False
+    return False
+
+
 def _validate_schedule_body(body):
-    """Loose on purpose - see README's "Deliberate choices". Structural
-    checks only; this never rejects a save because a field is non-numeric,
-    since real production entries like "BAL." and "trial-274" are valid.
+    """Loose BY DEFAULT - see README's "Deliberate choices". Every real
+    column inherited from the sheet this replaces stays free text, since
+    real production entries like "BAL." and "trial-274" are valid and a
+    strict type would reject data the scheduling team already enters
+    routinely.
+
+    column_types is the escape hatch, and it's opt-IN per column, not a
+    blanket switch: a column with no entry (or type "text") stays exactly
+    as loose as before. Only a column explicitly marked "number" - so far,
+    only Oven Cavity and Time Down (Minutes), both brand-new fields being
+    introduced FOR this app rather than inherited from the legacy sheet, so
+    there's no history of real free-text entries to accommodate - is
+    actually rejected for holding something that doesn't parse as a number.
+    A blank cell is never an error either way; only a real, present,
+    non-numeric value is.
     """
     if not isinstance(body, dict):
         return "body must be a JSON object"
+
+    columns = body.get("columns")
+    if columns is not None and not (
+        isinstance(columns, list) and all(isinstance(c, str) for c in columns)
+    ):
+        return "columns must be a list of strings"
+
+    column_types = body.get("column_types")
+    if column_types is not None:
+        if not (
+            isinstance(column_types, dict)
+            and all(isinstance(k, str) and v in COLUMN_TYPES for k, v in column_types.items())
+        ):
+            return f"column_types must be an object of string -> one of {COLUMN_TYPES}"
 
     rows = body.get("rows")
     if rows is not None:
         if not isinstance(rows, list):
             return "rows must be a list"
+        numeric_columns = {c for c, t in (column_types or {}).items() if t == "number"}
         for i, row in enumerate(rows):
             if not isinstance(row, dict):
                 return f"rows[{i}] must be an object"
@@ -52,12 +96,11 @@ def _validate_schedule_body(body):
                 return f'rows[{i}].kind must be "job" or "note" (got {kind!r})'
             if kind == "note" and not isinstance(row.get("text", ""), str):
                 return f"rows[{i}].text must be a string"
-
-    columns = body.get("columns")
-    if columns is not None and not (
-        isinstance(columns, list) and all(isinstance(c, str) for c in columns)
-    ):
-        return "columns must be a list of strings"
+            if kind == "job":
+                for col in numeric_columns:
+                    if col in row and not _is_number_like(row[col]):
+                        return (f"rows[{i}].{col} must be a number (or blank) - "
+                                f"got {row[col]!r}")
 
     roster = body.get("roster")
     if roster is not None and not (
@@ -135,11 +178,20 @@ def put_schedule(press, day_of_week, shift):
 def get_schedule_history(press, day_of_week, shift):
     db = get_db()
     limit = min(int(request.args.get("limit", 20)), 100)
+    # Sorting on saved_at alone is not reliable: two saves close enough
+    # together can land on the identical ISO timestamp (string precision is
+    # microseconds, but a fast round-trip - confirmed happening in tests -
+    # can still tie), and Mongo's tie-break order for equal sort keys is not
+    # guaranteed. _id is a real ObjectId with a per-process monotonic
+    # counter baked in, so it breaks ties correctly even when saved_at
+    # can't - included in the sort, then stripped from what's returned.
     docs = list(
-        db.schedule_history.find(_key(press, day_of_week, shift), {"_id": 0})
-        .sort("saved_at", -1)
+        db.schedule_history.find(_key(press, day_of_week, shift))
+        .sort([("saved_at", -1), ("_id", -1)])
         .limit(limit)
     )
+    for d in docs:
+        d.pop("_id", None)
     return jsonify({"history": docs})
 
 
