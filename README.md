@@ -163,6 +163,25 @@ Deliberate choices:
 - **Times are `"HH:MM"` strings**, not Excel's fractional-day floats
   (`0.280555... == 6:44 AM` in the source files) - converted explicitly at
   both the legacy-file migration boundary and the `.xlsx` export boundary.
+  One real source file drives a time value from a macro-backed `Timestamp()`
+  formula rather than a typed entry (see CLAUDE.md) - not yet reconciled,
+  since nothing here executes Excel formulas or VBA.
+- **`roster` keys are not fixed either, for the same reason `columns`
+  isn't.** A second real schedule folder (see CLAUDE.md - "The Press
+  Reports folder") uses `SUPERVISOR:` where the first uses `REVIEWED BY:`.
+  The API already validates `roster` as a plain string-keyed object with no
+  required key set, and the grid already renders whatever keys a document
+  has - this needed no code change, only confirming the design already
+  covered it. Only a brand-new, never-saved slot's starting template
+  assumes one fixed 5-field set; that's a convenience default, not a
+  constraint on real data.
+- **Efficiency-tracking formulas are explicitly out of scope.** The Press
+  Reports folder computes `Minutes Per Die`, `Gross Pounds/Hour`,
+  `Time/Die Change`, `Downtime`, and `Taper Quench` via autofilled Excel
+  formulas. Decided not to replicate these here - if that folder turns out
+  to belong to Press 2, `picos` likely already computes equivalent metrics
+  live from the PLC, and maintaining two independently-typed sources of the
+  same numbers would be worse than leaving one out.
 
 Every save also appends to a `schedule_history` collection (full document
 snapshot + timestamp + editor) - free with a real database, and it's the
